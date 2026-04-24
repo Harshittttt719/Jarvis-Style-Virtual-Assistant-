@@ -1,101 +1,102 @@
-# jarvis.py
-import os
-import struct
-import pvporcupine
-import pyaudio
-import sounddevice as sd
-import soundfile as sf
-import whisper
+import speech_recognition as sr
 import pyttsx3
-from dotenv import load_dotenv
-from openai import OpenAI
-
-# === LOAD ENVIRONMENT VARIABLES ===
-load_dotenv()
-
-# === SETUP KEYS ===
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PICOVOICE_ACCESS_KEY = os.getenv("PICOVOICE_ACCESS_KEY")
-
-# Initialize OpenAI client
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# === FUNCTION 1: Wake Word Detection ===
-def detect_wake_word(keyword_path="jarvis.ppn"):
-    porcupine = pvporcupine.create(
-        access_key=PICOVOICE_ACCESS_KEY,
-        keyword_paths=[keyword_path]
-    )
-    pa = pyaudio.PyAudio()
-    stream = pa.open(rate=porcupine.sample_rate,
-                     channels=1,
-                     format=pyaudio.paInt16,
-                     input=True,
-                     frames_per_buffer=porcupine.frame_length)
-
-    print("🎧 Listening for wake word ('Jarvis')...")
-
-    while True:
-        pcm = stream.read(porcupine.frame_length, exception_on_overflow=False)
-        pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
-        result = porcupine.process(pcm)
-        if result >= 0:
-            print("✅ Wake word detected!")
-            stream.stop_stream()
-            stream.close()
-            pa.terminate()
-            return True
-
-
-# === FUNCTION 2: Record Audio ===
-def record_audio(filename="command.wav", duration=5, samplerate=16000):
-    print("🎙️ Listening for your command...")
-    data = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1)
-    sd.wait()
-    sf.write(filename, data, samplerate)
-    return filename
-
-
-# === FUNCTION 3: Speech to Text (Local Whisper) ===
-def transcribe_audio(audio_file):
-    model = whisper.load_model("base")  # or "small"/"medium"/"large"
-    print("🧠 Transcribing with Whisper (local)...")
-    result = model.transcribe(audio_file)
-    return result["text"]
-
-
-# === FUNCTION 4: Gemini Response ===
-import google.generativeai as genai
+import datetime
+import webbrowser
 import os
-from dotenv import load_dotenv
+import random
 
-load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+#  TEXT TO SPEECH 
+engine = pyttsx3.init()
+engine.setProperty("rate", 175)
 
-def ask_gpt(text):
-   model = genai.GenerativeModel("models/gemini-2.5-flash")
-   response = model.generate_content(text)
-   return response.text
-
-
-
-# === FUNCTION 5: Text to Speech ===
 def speak(text):
-    engine = pyttsx3.init()
-    engine.setProperty("rate", 175)  # Adjust speaking speed
+    print("🤖 Jarvis:", text)
     engine.say(text)
     engine.runAndWait()
 
+# SPEECH TO TEXT 
+def listen():
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        print("🎙️ Listening...")
+        r.adjust_for_ambient_noise(source, duration=1)
+        audio = r.listen(source)
 
-# === MAIN LOOP ===
+    try:
+        command = r.recognize_google(audio).lower()
+        print("🗣️ You said:", command)
+        return command
+    except:
+        return ""
+
+#  COMMAND HANDLER 
+def run_command(command):
+
+    # ⏰ TIME
+    if "time" in command:
+        current_time = datetime.datetime.now().strftime("%H:%M")
+        speak(f"Current time is {current_time}")
+
+    # 📅 DATE
+    elif "date" in command:
+        current_date = datetime.datetime.now().strftime("%d %B %Y")
+        speak(f"Today is {current_date}")
+
+    # 🌐 OPEN WEBSITES
+    elif "open youtube" in command:
+        webbrowser.open("https://youtube.com")
+        speak("Opening YouTube")
+
+    elif "open google" in command:
+        webbrowser.open("https://google.com")
+        speak("Opening Google")
+
+    elif "open spotify" in command:
+        os.system("open -a Spotify")
+        speak("Opening Spotify")
+
+    # 🎵 PLAY MUSIC (FIXED)
+    elif "play music" in command:
+        music_dir = os.path.expanduser("~/Desktop/Music")
+
+        try:
+            songs = [s for s in os.listdir(music_dir) if s.endswith(('.mp3', '.wav', '.m4a'))]
+
+            if not songs:
+                speak("No songs found in your music folder")
+                return
+
+            song = random.choice(songs)
+            full_path = os.path.join(music_dir, song)
+
+            print("Playing:", full_path)
+            os.system(f"open '{full_path}'")
+
+            speak("Playing music")
+
+        except Exception as e:
+            print(e)
+            speak("Error playing music")
+
+    # 👋 GREETING
+    elif "hello" in command:
+        speak("Hello Harshit  😎")
+
+    # ❌ EXIT
+    elif "exit" in command or "stop" in command:
+        speak("Goodbye bhai 👋")
+        exit()
+
+    # 🤖 UNKNOWN
+    else:
+        speak("I didn't understand that")
+
+#  MAIN LOOP 
 if __name__ == "__main__":
-    while True:
-        detected = detect_wake_word("/Users/harshitmehra/Desktop/Python/jarvis.ppn")
+    speak("Jarvis is online")
 
-        if detected:
-            audio_file = record_audio()
-            text = transcribe_audio(audio_file)
-            print(f"🗣️ You said: {text}")
-            reply = ask_gpt(text)
-            print(f"🤖 Jarvis: {reply}")
-            speak(reply)
+    while True:
+        command = listen()
+
+        if command.strip() != "":
+            run_command(command)
